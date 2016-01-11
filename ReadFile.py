@@ -14,6 +14,8 @@ from scipy.optimize import curve_fit
 from scipy.optimize import leastsq
 import peakutils
 from scipy.optimize import minimize
+import os
+from mpl_toolkits.mplot3d import Axes3D
 
 def ReadFile(Filename):
     wfm = []
@@ -52,11 +54,12 @@ def ReadFileBatch(Filename):
 def ReadFileFast(Filename):
     wfm = []
     with open(Filename, 'r') as f:
-        f.next()
-        f.next()
-        f.next()
-        f.next()
-        f.next()
+        for i in range(5): f.readline()
+        #f.next()
+        #f.next()
+        #f.next()
+        #f.next()
+        #f.next()
         #wfm = [float(line.split()[2]) for line in f]
         wfm = [float(line[27:]) for line in f]
         #print wfm[0:10]
@@ -69,18 +72,22 @@ def GetPSD(wfm, startoff, fastint, totint):
     Qfast = sum(wfm[int(minidx-startoff):int(minidx+fastint)]) - BL*(startoff+fastint)
     Qtot = sum(wfm[int(minidx-startoff):int(minidx+totint)]) - BL*(startoff+totint)
     return (Qfast,Qtot)
-    
+
 def DoubleGauss(x, p):
     #A1, mu1, sigma1, A2, mu2, sigma2 = p
     #return A1*np.exp(-(x-mu1)**2/(2.*sigma1**2)) + A2*np.exp(-(x-mu2)**2/(2.*sigma2**2))
-    #print "p = ", p    
+    #print("p = ", p)
     return p[0]*np.exp(-(x-p[2])**2/(2.*p[3]**2)) + p[1]*np.exp(-(x-p[4])**2/(2.*p[5]**2))
     
 def ErrorFunc(p, x, y):
     #print "ErrorFunc! x = ", x, " y = ", y, " p = ", p
     return DoubleGauss(x,p) - y
 
-def EvalPSD(mypath, FastInt, LongInt, IntRange, MaxNumFiles,
+#Old method; 1 integration time per call
+#def EvalPSD(mypath, FastInt, LongInt, IntRange, MaxNumFiles,
+#            PSDrange, QtotRange):
+#New method: all integration times per call
+def EvalPSD(mypath, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
             PSDrange, QtotRange):
     #Function to be used to evaluate PSD for optimising LongInt and FastInt
     onlyfiles = [ f for f in listdir(mypath) if isfile(join(mypath,f))&("Data_" in f) ]
@@ -92,36 +99,43 @@ def EvalPSD(mypath, FastInt, LongInt, IntRange, MaxNumFiles,
     for fname in onlyfiles:
         #print "fname = ", fname
         if numfiles>MaxNumFiles: break
-        if np.remainder(numfiles,2000)==0: print numfiles, " files read!"
-        #if numfiles>3400: print "filename = ", fname
+        if np.remainder(numfiles,2000)==0: print(numfiles, " files read!")
+        #if numfiles>3400: print("filename = ", fname)
         numfiles+=1
         Wfm = ReadFileFast(join(mypath,fname))
         #PSDinfo.append(GetPSD(Wfm,100,thisFastInt,LongInt))
-        PSDinfo.append(GetPSD(Wfm,100,FastInt,LongInt))
-        if numfiles==1: continue                
-        thisPSD = PSDinfo[-1][0]/PSDinfo[-1][1]
+        #PSDinfo.append(GetPSD(Wfm,100,FastInt,LongInt))
+        #Fill PSDinfo sequentially using several FastInt and LongInt.
+        IntValues = [[x,y] for x in AllFastTimes for y in AllLongTimes]
+        PSDinfo.append([GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
+        
+        #if numfiles==1: continue                
+        #thisPSD = PSDinfo[-1][0]/PSDinfo[-1][1]
         #print "thisPSD = ", thisPSD, " Qtot = ", PSDinfo[-1][1]
-        if (PSDrange[0]<thisPSD)&(thisPSD<PSDrange[1])\
-        &(QtotRange[0]<PSDinfo[-1][1])&(PSDinfo[-1][1]<QtotRange[1]):
-            AvgWfm += Wfm
+        #if (PSDrange[0]<thisPSD)&(thisPSD<PSDrange[1])\
+        #&(QtotRange[0]<PSDinfo[-1][1])&(PSDinfo[-1][1]<QtotRange[1]):
+            #AvgWfm += Wfm
             #print "Passed AvgWfmCuts! fname = ", fname
             
 
-    PSDinfo = np.transpose(PSDinfo)    
+    PSDinfo = np.transpose(PSDinfo, [1,2,0])    
+    #IntValues = np.transpose(IntValues)
     #plt.figure()
     #plt.hist2d(PSDinfo[1], PSDinfo[0]/PSDinfo[1], (100,200), range=((-50,-0), (0.0, 1.0)))
     #Select range from -300:-180 as it appears flat for a guessed PSD value.
     #10% WbLS range = -80:-30
     #For the PROSPECT data, (-450,-300) is about right.
-    print "FastInt = ", IntRange[0], "LongInt = ", IntRange[1]
-    return (GetFOM(PSDinfo, (50, 200), IntRange, (0.0,1.0)), AvgWfm)
+    #print("FastInt = ", IntRange[0], "LongInt = ", IntRange[1])
+    return [[GetFOM(PSDinfo[i], (50, 200), IntRange, (0.0,1.0)) for i in range(len(PSDinfo))],
+             IntValues, AvgWfm, PSDinfo]
 
 def GetFOM(PSDinfo, nbins, rangex, rangey):
     FOM = []
     PSDgamma = []
     PSDneut = []
     thehist = np.histogram2d(PSDinfo[1], PSDinfo[0]/PSDinfo[1], nbins, range=(rangex, rangey))
-    pkdata = sum(np.transpose(thehist[0][:]),1)
+    #print(thehist)
+    pkdata = sum(thehist[0][:],0)#sum(np.transpose(thehist[0][:]),1)
     bin_centres = (thehist[2][:-1] + thehist[2][1:])/2
     #Crude estimate of peak location
     #plt.figure()
@@ -134,12 +148,13 @@ def GetFOM(PSDinfo, nbins, rangex, rangey):
         coeff = []
         uncerts = []
         FOMuncert=0
-        print "Failed to find 2 peaks, returning..."
+        print("Failed to find 2 peaks, returning...")
         return FOM, PSDgamma, PSDneut, PSDinfo, pkdata, bin_centres,\
         coeff, uncerts, FOMuncert
 
-    #print "pkguess = ", pkguess, " size = ", np.size(pkguess)
-    p0 = [100, 100, bin_centres[min(pkguess)], 0.03, bin_centres[max(pkguess)], 0.03]
+    #print("pkdata = ", pkdata, " size = ", np.size(pkdata), " bin_centres = ", bin_centres, ", size = ", np.size(bin_centres))
+    p0 = [max(pkdata), max(pkdata), bin_centres[min(pkguess)], 0.03, bin_centres[max(pkguess)], 0.03]
+    #print("p0 = ", p0)
     #Use bootstrap method; this neglects covariaces, but the covariances are
     #small between the variables used in FOM calc.    
     coeff, uncerts = fit_function(p0, bin_centres, pkdata, DoubleGauss)        
@@ -168,8 +183,8 @@ def GetFOM(PSDinfo, nbins, rangex, rangey):
         #var_matrix = var_matrix*s_sqr    
         #var_matrix = var_matrix[2::, 2::]
     firstval = (1/(2.35*(coeff[3]+coeff[5])))
-    lastval = (coeff[4]-coeff[2])/(2.35*(coeff[3]+coeff[5]))
-    Jacobian = [firstval, -firstval, lastval, lastval]
+    lastval = (coeff[4]-coeff[2])/(2.35*((coeff[3]+coeff[5])**2))
+    Jacobian = [firstval, -firstval, lastval, lastval]#AKA sensitivity coeff matrix
     #When using fit_function, use this:
     #print "Jacobian = ", Jacobian
     FOMuncert = np.sqrt(np.dot(np.multiply(Jacobian,Jacobian),
@@ -189,13 +204,13 @@ def GetFOM(PSDinfo, nbins, rangex, rangey):
         #return FOM, PSDgamma, PSDneut, PSDinfo, pkdata, bin_centres, var_matrix, FOMuncert
         
     #fitted = DoubleGauss(bin_centres, *coeff)
-    FOM = abs((coeff[4]-coeff[2])/(2.35*(coeff[3]+coeff[5])))
+    FOM = abs((abs(coeff[4])-abs(coeff[2]))/(2.35*(abs(coeff[3])+abs(coeff[5]))))
     PSDgamma = max(coeff[2],coeff[4])
     PSDneut = min(coeff[2],coeff[4])
     #print "numfiles = ", numfiles    
     
-    print "FOM = ", FOM, " +/- ", FOMuncert
-    print "PSDgamma = ", PSDgamma, ", PSDneut = ", PSDneut
+    print("FOM = ", FOM, " +/- ", FOMuncert)
+    print("PSDgamma = ", PSDgamma, ", PSDneut = ", PSDneut)
     return FOM, PSDgamma, PSDneut, PSDinfo, pkdata, bin_centres,\
     coeff, uncerts, FOMuncert
 
@@ -335,6 +350,7 @@ def fit_function(p0, datax, datay, function, **kwargs):
 #mypath = '/home/lbignell/PSD Analysis/EJ-309/AmBeAndCs137/3522338134/'
 #DBLS data
 #mypath = '/home/lbignell/PSD Analysis/DBLS/Cs137AndAmBe150817/'
+#mypath = os.path.normpath("C:/Users/lbignell/Desktop/CFN Proposal Jun 2015/PSD Measurements/Data/DBLS/AmBeAndCs137150817/")
 #10% WbLS data
 ##Finer range settings
 #mypath = '/home/lbignell/PSD Analysis/Sample5/AmBeAndCs137_150821/3523466748_NoLineOfSight/'
@@ -349,10 +365,15 @@ def fit_function(p0, datax, datay, function, **kwargs):
 #PROSPECT
 #EJ-309
 #mypath = '/home/lbignell/PSD Analysis/PROSPECT/EJ-309/AmBeAndCs137_151014/'
+#mypath = os.path.normpath("C:/Users/lbignell/Desktop/CFN Proposal Jun 2015/PSD Measurements/Data/PROSPECT/EJ-309/AmBeAndCs137_151014/3527782480/")
 #EJ-309 + surfactant
 #mypath = '/home/lbignell/PSD Analysis/PROSPECT/EJ-309_Surf/AmBeAndCs137_151019/'
+#mypath = os.path.normpath("C:/Users/lbignell/Desktop/CFN Proposal Jun 2015/PSD Measurements/Data/PROSPECT/EJ-309_Surf/CollimatedAmBeAndCs137_151029/3528977124/")
 #EJ-309 + surfactant + Li
-mypath = '/home/lbignell/PSD Analysis/PROSPECT/EJ-309_Surf_Li/AmBeAndCs137_151016/'
+#mypath = '/home/lbignell/PSD Analysis/PROSPECT/EJ-309_Surf_Li/AmBeAndCs137_151016/'
+#mypath = os.path.normpath("C:/Users/lbignell/Desktop/CFN Proposal Jun 2015/PSD Measurements/Data/PROSPECT/EJ-309_Surf_Li/CollimatedAmBeAndCs137_151027/3528908578")
+#P-20
+#mypath = os.path.normpath("C:/Users/lbignell/Desktop/CFN Proposal Jun 2015/PSD Measurements/Data/PROSPECT/P-20/AmBeAndCs137_151110/3530197699")
 
 
 #Do a nelder-mead optimisation on the LongInt and FastInt parameters
@@ -361,98 +382,62 @@ mypath = '/home/lbignell/PSD Analysis/PROSPECT/EJ-309_Surf_Li/AmBeAndCs137_15101
 #I'll try a grid search instead. I already know the 'best' values are
 #approximately (fast, short) = (50, 500), so I'll search around there...
 
-
-#AllFastTimes = np.linspace(60, 120, 13)
-#AllLongTimes = np.linspace(300, 600, 7)
-FastTime = 70
-LongTime = 800
+t = time.time()
+AllFastTimes = np.linspace(10, 150, 15)
+AllLongTimes = np.linspace(200, 1500, 14)
 #Select range from -300:-180 as it appears flat for a guessed PSD value.
 #10% WbLS range = -80:-30
 #For the PROSPECT data, (-450,-300) is about right.
-IntRange = (-450,-350)
+IntRange = (-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
 MaxNumFiles = 20000
-PSDrange=(0,0.8)
-QtotRange=(-450,-350)
-#AllFOM = []
-#AllPSDgamma = []
-#AllPSDneut = []
-#Params = []
-#MaxFOM = 0
-#BestFastTime = 0
-#BestLongTime = 0
-#for FastTime in AllFastTimes:
-#    for LongTime in AllLongTimes:
-#stuff, AvgWfm = \
-#EvalPSD(mypath, FastTime, LongTime, IntRange, MaxNumFiles,
-#        PSDrange, QtotRange)
-#FOM, PSDgamma, PSDneut, PSDinfo, pkdata, bin_centres, coeff, uncerts, FOMuncert\
-#= stuff
-#        AllFOM.append(FOM)
-#        AllPSDgamma.append(PSDgamma)
-#        AllPSDneut.append(PSDneut)
-#        Params.append([FastTime,LongTime])
-#        if FOM>MaxFOM:
-#            MaxFOM = FOM
-#            BestFastTime = FastTime
-#            BestLongTime = LongTime
+PSDrange=(0,0.8)#for averaging
+QtotRange=(-350,-250)#EJ-309 = (-450,-350)
+AllFOM = []
+AllPSDgamma = []
+AllPSDneut = []
+Params = []
+MaxFOM = 0
+BestFastTime = 0
+BestLongTime = 0
+
+#stuff, IntValues, AvgWfm, PSDinfo = \
+#    EvalPSD(mypath, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
+#            PSDrange, QtotRange)
+#FOM, PSDgamma, PSDneut = np.transpose([stuff[i][0:3] for i in range(len(stuff))])
+#pkdata = [stuff[i][4] for i in range(len(stuff))]
+#bin_centres = stuff[0][5]
+#coeff, uncerts, FOMuncert = np.transpose([stuff[i][6:9] for i in range(len(stuff))])
+#IntValues = np.transpose(IntValues)
+
+#fig = plt.figure()
+#ax = fig.gca(projection='3d')
+#ax.plot_trisurf(IntValues[0], IntValues[1], FOM, cmap=plt.cm.jet, linewidth=0.2)
+#ax.set_xlabel("Fast Integration Time (ns)")
+#ax.set_ylabel("Total Integration Time (ns)")
+#ax.set_zlabel("Figure of Merit")
+#plt.savefig(join(mypath,"FOMvsIntegrationTimes.svg"))
+
+#print("Run Finished! Optimal value of (Fast, Total) integration is (", \
+#BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", max(FOM))
+#elapsed = time.time()-t
+#print("Time elapsed = ", elapsed, " seconds")
+
 FOMvsCharge = []
 UFOMvsCharge = []
-qmax=2e-8
+pkdatavsCharge = []
+coeffvsCharge = []
+qmax=800#EJ-309 = 800, DBLS = 500, P20=800
 qmin=0
-nbins=51
+nbins=17
 binwidth=(qmax-qmin)/(nbins-1)
+EnCal = PEperCharge
+Energies = np.linspace(qmin, qmax, nbins)*EnCal
+UEnergies = [EnCal*0.5*binwidth for i in range(len(Energies))]
 for i in np.linspace(qmin, qmax, nbins):
     dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
-    GetFOM(PSDinfo, (50,200), (-(i+binwidth),-i), (0.,1.))
+    GetFOM(PSDinfo_EJ309_Surf_Li_wfm[20], (50,300), (-(i+binwidth),-i), (0.,1.))
+    #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
     FOMvsCharge.append(dummy1)
+    pkdatavsCharge.append(dummy5)
+    coeffvsCharge.append(dummy7)
     UFOMvsCharge.append(dummy9)
-
-
-
-
-#print "Run Finished! Optimal value of (Fast, Total) integration is (", \
-#BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", MaxFOM
-
-#onlyfiles = [ f for f in listdir(mypath) if isfile(join(mypath,f))&("Data_" in f) ]
-#LongInt = 1000
-#LongInt = np.linspace(500, 2500, 5)
-#FastInt = np.linspace(5,50,10)0.781717563872 , PSDneut =  0.769784452695
-#FastInt = 50
-#FOM = []
-#PSDgamma = []
-#PSDneut = []
-#for thisFastInt in FastInt:
-#for thisLongInt in LongInt:
-#    start_time = time.time()
-#    PSDinfo = []
-#    for fname in onlyfiles:
-#        Wfm = ReadFileFast(join(mypath,fname))
-        #PSDinfo.append(GetPSD(Wfm,100,thisFastInt,LongInt))
-#        PSDinfo.append(GetPSD(Wfm,100,FastInt,thisLongInt))
-
-#    PSDinfo = np.transpose(PSDinfo)    0.781717563872 , PSDneut =  0.769784452695
-    #Select range from -300:-180 as it appears flat for a guessed PSD value.
-#    thehist = np.histogram2d(PSDinfo[1], PSDinfo[0]/PSDinfo[1], (50,200), range=((-300,-180), (0.0, 1.0)))
-#    pkdata = sum(np.transpose(thehist[0][:]),1)
-#    bin_centres = (thehist[2][:-1] + thehist[2][1:])/2
-    #Crude estimate of peak location
-#    pkguess = peakutils.peak.indexes(pkdata, 0.5, 5)
-#    p0 = [100, bin_centres[min(pkguess)], 0.03, 100, bin_centres[max(pkguess)], 0.03]
-#    coeff, var_matrix = curve_fit(DoubleGauss, bin_centres, sum(np.transpose(thehist[0][:]), 1), p0)
-#    fitted = DoubleGauss(bin_centres, *coeff)
-    #plt.figure()
-    #plt.plot(bin_centres,sum(np.transpose(thehist[0][:]),1),label='data')
-    #plt.plot(bin_centres,fitted,label='fit')
-#    FOM.append((coeff[4]-coeff[1])/(2.35*(coeff[2]+coeff[5])))
-#    PSDgamma.append(max(coeff[1],coeff[4]))
-#    PSDneut.append(min(coeff[1],coeff[4]))0.781717563872 , PSDneut =  0.769784452695
-#    print("FOM = ", FOM[-1])
-#    print("PSDgamma = ", PSDgamma, ", PSDneut = ", PSDneut)
-#    print("--- %s seconds ---" % (time.time() - start_time))
-    
-#plt.figure()
-#plt.plot(FastInt, FOM)
-#plt.figure()
-#plt.plot(LongInt,PSDgamma,label='Gamma PSD')
-#plt.plot(LongInt,PSDneut,label='Neutron PSD')
-#plt.legend()
