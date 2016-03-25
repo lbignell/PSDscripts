@@ -19,15 +19,26 @@ from mpl_toolkits.mplot3d import Axes3D
 from optparse import OptionParser
 import sys
 from oneton import pipath
+import matplotlib as mpl
 
 class analysis():
     '''
     This is a class to handle PSD analysis.
     '''
 
-    def __init__(self,path=None):
+    def __init__(self, path=None, MaxNumFiles=1000):
         if path is not None:
             self.path = path
+        self.MaxNumFiles = MaxNumFiles
+        #define some graphics defaults
+        mpl.rcParams['axes.labelsize'] = 26
+        mpl.rcParams['legend.fontsize'] = 20
+        mpl.rcParams['axes.titlesize'] = 26
+        mpl.rcParams['xtick.labelsize'] = 20
+        mpl.rcParams['ytick.labelsize'] = 20
+        mpl.rcParams['figure.subplot.bottom'] = 0.15
+        mpl.rcParams['figure.subplot.left'] = 0.15
+        mpl.rcParams['image.cmap'] = 'Blues'
         return
 
     def ReadFile(self,Filename):
@@ -92,10 +103,10 @@ class analysis():
     #def EvalPSD(mypath, FastInt, LongInt, IntRange, MaxNumFiles,
     #            PSDrange, QtotRange):
     #New method: all integration times per call
-    def EvalPSD(self, mypath, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
+    def EvalPSD(self, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
                 PSDrange, QtotRange):
         #Function to be used to evaluate PSD for optimising LongInt and FastInt
-        onlyfiles = [ f for f in listdir(mypath) if isfile(join(mypath,f))&("Data_" in f) ]
+        onlyfiles = [ f for f in listdir(self.path) if isfile(join(self.path,f))&("Data_" in f) ]
         PSDinfo = []
         numfiles = 0
         AvgWfm = np.zeros(10000)
@@ -105,7 +116,7 @@ class analysis():
                 print(numfiles, " files read!")
                 print("The next file is:", fname)
             numfiles+=1
-            Wfm = self.ReadFileFast(join(mypath,fname))
+            Wfm = self.ReadFileFast(join(self.path,fname))
             #Fill PSDinfo sequentially using several FastInt and LongInt.
             IntValues = [[x,y] for x in AllFastTimes for y in AllLongTimes]
             PSDinfo.append([self.GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
@@ -349,6 +360,50 @@ class analysis():
         #print "perr = ", perr_bootstrap
         return pfit_bootstrap, perr_bootstrap
 
+    def SetMaxNumFiles(self,num):
+        self.MaxNumFiles = num
+        return
+
+    def PSD(self, AllFastTimes, AllLongTimes, IntRange=(-450,-300)):
+        PSDrange=(0,0.8)#for averaging, CURRENTLY UNUSED AND NEEDS FIXING.
+        QtotRange=(-350,-250)#EJ-309 = (-450,-350). CURRENTLY UNUSED AND NEEDS FIXING.
+        self.IntValues = []
+        self.PSDinfo = []
+        stuff, IntValues, AvgWfm, self.PSDinfo = \
+            self.EvalPSD(AllFastTimes, AllLongTimes, IntRange, self.MaxNumFiles,
+                         PSDrange, QtotRange)
+        self.FOM, self.PSDgamma, self.PSDneut = \
+            np.transpose([stuff[i][0:3] for i in range(len(stuff))])
+        self.pkdata = [stuff[i][4] for i in range(len(stuff))]
+        self.bin_centres = stuff[0][5]
+        self.coeff, self.uncerts, self.FOMuncert = \
+            np.transpose([stuff[i][6:9] for i in range(len(stuff))])
+        self.IntValues = np.transpose(IntValues)
+        return
+
+    def pltFOMoptim(self, savefig=True, fname="FOMvsIntegrationTimes.svg",
+                    cmap=plt.cm.winter):
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.plot_trisurf(self.IntValues[0], self.IntValues[1], self.FOM, cmap=cmap, linewidth=0.2)
+        ax.set_xlabel("Fast Integration Time (ns)")
+        ax.set_ylabel("Total Integration Time (ns)")
+        ax.set_zlabel("Figure of Merit")
+        ax.set_zlim(0,5)
+        if savefig:
+            plt.savefig(join(self.path,fname))
+        return fig, ax
+
+    def pltPSD(self, savefig=True, fname='PSDplot.svg'):
+        fig = plt.figure()
+        ax = fig.gca()
+        ax.hist2d(self.PSDinfo[49][1], 
+                  np.divide(self.PSDinfo[49][0],self.PSDinfo[49][1]),
+                  (200,200), range=((-600,0), (0.0, 1.0)))
+        if savefig:
+            plt.savefig(join(self.path,fname))
+        return fig, ax
+
 if __name__ == '__main__' :
     parser = OptionParser()
     (options,args) = parser.parse_args(args=sys.argv)
@@ -359,7 +414,7 @@ if __name__ == '__main__' :
         mypath = os.getcwd()
         print("No path was provided. Using the current directory: {0}".format(mypath))
         
-    anal = analysis(path=mypath)
+    anal = analysis(path=mypath, MaxNumFiles=5000)
     #EJ-309 data
     #mypath = '/home/lbignell/PSD Analysis/EJ-309/AmBeAndCs137/3522338134/'
     #DBLS data
@@ -395,47 +450,22 @@ if __name__ == '__main__' :
     #Actually, those optimisations find it difficult to stick to integer values.
     #I'll try a grid search instead. I already know the 'best' values are
     #approximately (fast, short) = (50, 500), so I'll search around there...
-
     t = time.time()
-    AllFastTimes = np.linspace(1, 20, 20)
-    AllLongTimes = np.linspace(200, 500, 3)
+    AllFastTimes = np.linspace(10, 120, 12)
+    AllLongTimes = np.linspace(200, 1000, 9)
+    BestFastTime = 0
+    BestLongTime = 0
     #Select range from -300:-180 as it appears flat for a guessed PSD value.
     #10% WbLS range = -80:-30
     #For the PROSPECT data, (-450,-300) is about right.
     IntRange = (-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
-    MaxNumFiles = 4000
-    PSDrange=(0,0.8)#for averaging
-    QtotRange=(-350,-250)#EJ-309 = (-450,-350)
-    AllFOM = []
-    AllPSDgamma = []
-    AllPSDneut = []
-    Params = []
-    MaxFOM = 0
-    BestFastTime = 0
-    BestLongTime = 0
-
-    stuff, IntValues, AvgWfm, PSDinfo = \
-        anal.EvalPSD(mypath, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
-                     PSDrange, QtotRange)
-    FOM, PSDgamma, PSDneut = np.transpose([stuff[i][0:3] for i in range(len(stuff))])
-    pkdata = [stuff[i][4] for i in range(len(stuff))]
-    bin_centres = stuff[0][5]
-    coeff, uncerts, FOMuncert = np.transpose([stuff[i][6:9] for i in range(len(stuff))])
-    IntValues = np.transpose(IntValues)
-
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    ax.plot_trisurf(IntValues[0], IntValues[1], FOM, cmap=plt.cm.jet, linewidth=0.2)
-    ax.set_xlabel("Fast Integration Time (ns)")
-    ax.set_ylabel("Total Integration Time (ns)")
-    ax.set_zlabel("Figure of Merit")
-    ax.set_zlim(0,5)
-    plt.savefig(join(mypath,"FOMvsIntegrationTimes.svg"))
-
+    anal.PSD(AllFastTimes, AllLongTimes, IntRange)
     print("Run Finished! Optimal value of (Fast, Total) integration is (", \
-    BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", max(FOM))
+    BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", max(anal.FOM))
     elapsed = time.time()-t
     print("Time elapsed = ", elapsed, " seconds")
+    anal.pltFOMoptim()
+    anal.pltPSD()
 
     FOMvsCharge = []
     UFOMvsCharge = []
@@ -446,12 +476,12 @@ if __name__ == '__main__' :
     nbins=17
     binwidth=(qmax-qmin)/(nbins-1)
     #EnCal = PEperCharge
-    EnCal = float(input('Please enter the energy calibration: \n'))
+    EnCal = float(input('Please enter the energy calibration (keV/charge bin): \n'))
     Energies = np.linspace(qmin, qmax, nbins)*EnCal
     UEnergies = [EnCal*0.5*binwidth for i in range(len(Energies))]
     for i in np.linspace(qmin, qmax, nbins):
         dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
-        anal.GetFOM(PSDinfo[60], (50,300), (-(i+binwidth),-i), (0.,1.))
+        anal.GetFOM(anal.PSDinfo[49], (50,300), (-(i+binwidth),-i), (0.,1.))
         #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
         FOMvsCharge.append(dummy1)
         pkdatavsCharge.append(dummy5)
