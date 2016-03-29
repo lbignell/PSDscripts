@@ -20,6 +20,8 @@ from optparse import OptionParser
 import sys
 from oneton import pipath
 import matplotlib as mpl
+if os.name == 'nt':
+    import winsound
 
 class analysis():
     '''
@@ -31,14 +33,16 @@ class analysis():
             self.path = path
         self.MaxNumFiles = MaxNumFiles
         #define some graphics defaults
-        mpl.rcParams['axes.labelsize'] = 26
-        mpl.rcParams['legend.fontsize'] = 20
-        mpl.rcParams['axes.titlesize'] = 26
-        mpl.rcParams['xtick.labelsize'] = 20
-        mpl.rcParams['ytick.labelsize'] = 20
-        mpl.rcParams['figure.subplot.bottom'] = 0.15
-        mpl.rcParams['figure.subplot.left'] = 0.15
+        mpl.rcParams['axes.labelsize'] = 20
+        mpl.rcParams['legend.fontsize'] = 16
+        mpl.rcParams['axes.titlesize'] = 20
+        mpl.rcParams['xtick.labelsize'] = 16
+        mpl.rcParams['ytick.labelsize'] = 16
+        mpl.rcParams['figure.subplot.bottom'] = 0.12
+        mpl.rcParams['figure.subplot.left'] = 0.12
         mpl.rcParams['image.cmap'] = 'Blues'
+        if os.name == 'nt':
+            self.isWindows = True
         return
 
     def ReadFile(self,Filename):
@@ -148,7 +152,6 @@ class analysis():
         PSDgamma = []
         PSDneut = []
         thehist = np.histogram2d(PSDinfo[1], PSDinfo[0]/PSDinfo[1], nbins, range=(rangex, rangey))
-        #print(thehist)
         pkdata = sum(thehist[0][:],0)#sum(np.transpose(thehist[0][:]),1)
         bin_centres = (thehist[2][:-1] + thehist[2][1:])/2
         #Crude estimate of peak location
@@ -166,9 +169,7 @@ class analysis():
             return FOM, PSDgamma, PSDneut, PSDinfo, pkdata, bin_centres,\
             coeff, uncerts, FOMuncert
 
-        #print("pkdata = ", pkdata, " size = ", np.size(pkdata), " bin_centres = ", bin_centres, ", size = ", np.size(bin_centres))
         p0 = [max(pkdata), max(pkdata), bin_centres[min(pkguess)], 0.03, bin_centres[max(pkguess)], 0.03]
-        #print("p0 = ", p0)
         #Use bootstrap method; this neglects covariaces, but the covariances are
         #small between the variables used in FOM calc.    
         coeff, uncerts = self.fit_function(p0, bin_centres, pkdata, self.DoubleGauss)        
@@ -394,15 +395,41 @@ class analysis():
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltPSD(self, savefig=True, fname='PSDplot.svg'):
+    def pltPSD(self, savefig=True, fname='PSDplot.svg', qmin=-100):
         fig = plt.figure()
         ax = fig.gca()
         ax.hist2d(self.PSDinfo[49][1], 
                   np.divide(self.PSDinfo[49][0],self.PSDinfo[49][1]),
-                  (200,200), range=((-600,0), (0.0, 1.0)))
+                  (200,200), range=((qmin,0), (0.0, 1.0)))
         if savefig:
             plt.savefig(join(self.path,fname))
         return fig, ax
+
+    def getFOMvsCharge(self, PSDidx, edgecharge, nbins, qmax, qmin=0):
+        #HQEPMT: qmax=80#EJ-309 = 800, DBLS = 500, P20=800
+        self.FOMvsCharge = []
+        self.UFOMvsCharge = []
+        self.pkdatavsCharge = []
+        self.coeffvsCharge = []
+        binwidth=(qmax-qmin)/(nbins-1)
+        ComptonEdge = 477.65 #in keV for Cs137    
+        self.EnCal = ComptonEdge/edgecharge #keV/bin
+        self.Energies = np.linspace(qmin, qmax, nbins)*self.EnCal
+        self.UEnergies = [self.EnCal*0.5*binwidth for i in range(len(self.Energies))]
+        for i in np.linspace(qmin, qmax, nbins):
+            dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
+            anal.GetFOM(anal.PSDinfo[50], (50,300), (-(i+binwidth),-i), (0.,1.))
+            #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
+            self.FOMvsCharge.append(dummy1)
+            self.pkdatavsCharge.append(dummy5)
+            self.coeffvsCharge.append(dummy7)
+            self.UFOMvsCharge.append(dummy9)
+
+        plt.figure()
+        plt.errorbar(self.Energies, self.FOMvsCharge, xerr=self.UEnergies, yerr=self.UFOMvsCharge)
+        plt.xlabel('Energy (keV)')
+        plt.ylabel('PSD FOM')
+        return
 
 if __name__ == '__main__' :
     parser = OptionParser()
@@ -414,7 +441,7 @@ if __name__ == '__main__' :
         mypath = os.getcwd()
         print("No path was provided. Using the current directory: {0}".format(mypath))
         
-    anal = analysis(path=mypath, MaxNumFiles=5000)
+    anal = analysis(path=mypath, MaxNumFiles=20000)
     #EJ-309 data
     #mypath = '/home/lbignell/PSD Analysis/EJ-309/AmBeAndCs137/3522338134/'
     #DBLS data
@@ -458,35 +485,16 @@ if __name__ == '__main__' :
     #Select range from -300:-180 as it appears flat for a guessed PSD value.
     #10% WbLS range = -80:-30
     #For the PROSPECT data, (-450,-300) is about right.
-    IntRange = (-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
+    IntRange = (-40,-30)#HQE PMT#(-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
     anal.PSD(AllFastTimes, AllLongTimes, IntRange)
     print("Run Finished! Optimal value of (Fast, Total) integration is (", \
     BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", max(anal.FOM))
     elapsed = time.time()-t
     print("Time elapsed = ", elapsed, " seconds")
     anal.pltFOMoptim()
-    anal.pltPSD()
+    anal.pltPSD(qmin=-100)
+    if anal.isWindows:
+        winsound.Beep(4000,100)
 
-    FOMvsCharge = []
-    UFOMvsCharge = []
-    pkdatavsCharge = []
-    coeffvsCharge = []
-    qmax=800#EJ-309 = 800, DBLS = 500, P20=800
-    qmin=0
-    nbins=17
-    binwidth=(qmax-qmin)/(nbins-1)
-    #EnCal = PEperCharge
-    EnCal = float(input('Please enter the energy calibration (keV/charge bin): \n'))
-    Energies = np.linspace(qmin, qmax, nbins)*EnCal
-    UEnergies = [EnCal*0.5*binwidth for i in range(len(Energies))]
-    for i in np.linspace(qmin, qmax, nbins):
-        dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
-        anal.GetFOM(anal.PSDinfo[49], (50,300), (-(i+binwidth),-i), (0.,1.))
-        #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
-        FOMvsCharge.append(dummy1)
-        pkdatavsCharge.append(dummy5)
-        coeffvsCharge.append(dummy7)
-        UFOMvsCharge.append(dummy9)
-
-    plt.figure()
-    plt.errorbar(Energies, FOMvsCharge, xerr=UEnergies, yerr=UFOMvsCharge)
+    EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
+    anal.getFOMvsCharge(84, EdgeCharge, 12, 100, qmin=0)
