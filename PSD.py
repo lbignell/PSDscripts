@@ -43,6 +43,9 @@ class analysis():
         mpl.rcParams['image.cmap'] = 'Blues'
         if os.name == 'nt':
             self.isWindows = True
+        self.FOM = None
+        self.PSDinfo = None
+        self.MaxURelFOM = 0.1
         return
 
     def ReadFile(self,Filename):
@@ -381,6 +384,29 @@ class analysis():
             np.transpose([stuff[i][6:9] for i in range(len(stuff))])
         self.IntValues = np.transpose(IntValues)
         return
+        
+    def getBestIntValues(self):
+        '''
+        Find the integration times that give the largest FOM.
+        
+        This needs to be called after the PSD method.
+        The relative uncertainty of the biggest FOM must be less than MaxURelFOM,
+        to avoid choosing unstable/spurious values.
+        returns Qfast, Qtotal, index of best FOM.
+        '''
+        if self.FOM is None:
+            print("PSD.getBestIntValues ERROR: FOM optimisation hasn't been done yet")
+            return None
+        FOMmax = 0.
+        imax = -1
+        for i,FOM in enumerate(self.FOM):
+            if self.FOMuncert[i]/FOM < self.MaxURelFOM and FOM > FOMmax:
+                FOMmax = FOM
+                imax = i
+        if imax == -1:
+            print("PSD.getBestIntValues: No good FOM found.")
+            return None
+        return self.IntValues[0][imax], self.IntValues[1][imax], imax
 
     def pltFOMoptim(self, savefig=True, fname="FOMvsIntegrationTimes.svg",
                     cmap=plt.cm.winter):
@@ -395,11 +421,11 @@ class analysis():
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltPSD(self, savefig=True, fname='PSDplot.svg', qmin=-100):
+    def pltPSD(self, idx, savefig=True, fname='PSDplot.svg', qmin=-100):
         fig = plt.figure()
         ax = fig.gca()
-        ax.hist2d(self.PSDinfo[49][1], 
-                  np.divide(self.PSDinfo[49][0],self.PSDinfo[49][1]),
+        ax.hist2d(self.PSDinfo[idx][1], 
+                  np.divide(self.PSDinfo[idx][0],self.PSDinfo[idx][1]),
                   (200,200), range=((qmin,0), (0.0, 1.0)))
         if savefig:
             plt.savefig(join(self.path,fname))
@@ -427,7 +453,7 @@ class analysis():
 
         plt.figure()
         plt.errorbar(self.Energies, self.FOMvsCharge, xerr=self.UEnergies, yerr=self.UFOMvsCharge)
-        plt.xlabel('Energy (keV)')
+        plt.xlabel('Electron Equivalent Energy (keV)')
         plt.ylabel('PSD FOM')
         return
 
@@ -482,19 +508,21 @@ if __name__ == '__main__' :
     AllLongTimes = np.linspace(200, 1000, 9)
     BestFastTime = 0
     BestLongTime = 0
+    theidx = -1
     #Select range from -300:-180 as it appears flat for a guessed PSD value.
     #10% WbLS range = -80:-30
     #For the PROSPECT data, (-450,-300) is about right.
     IntRange = (-40,-30)#HQE PMT#(-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
     anal.PSD(AllFastTimes, AllLongTimes, IntRange)
+    BestFastTime, BestLongTime, theidx = anal.getBestIntValues()
     print("Run Finished! Optimal value of (Fast, Total) integration is (", \
-    BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", max(anal.FOM))
+    BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", anal.FOM[theidx])
     elapsed = time.time()-t
     print("Time elapsed = ", elapsed, " seconds")
     anal.pltFOMoptim()
-    anal.pltPSD(qmin=-100)
+    anal.pltPSD(theidx ,qmin=-100)
     if anal.isWindows:
         winsound.Beep(4000,100)
 
     EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
-    anal.getFOMvsCharge(84, EdgeCharge, 12, 100, qmin=0)
+    anal.getFOMvsCharge(theidx, EdgeCharge, 12, 100, qmin=0)
