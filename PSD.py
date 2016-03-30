@@ -46,6 +46,7 @@ class analysis():
         self.FOM = None
         self.PSDinfo = None
         self.MaxURelFOM = 0.1
+        self.pltTitle = ''
         return
 
     def ReadFile(self,Filename):
@@ -413,22 +414,33 @@ class analysis():
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         ax.plot_trisurf(self.IntValues[0], self.IntValues[1], self.FOM, cmap=cmap, linewidth=0.2)
-        ax.set_xlabel("Fast Integration Time (ns)")
-        ax.set_ylabel("Total Integration Time (ns)")
-        ax.set_zlabel("Figure of Merit")
+        ax.set_xlabel("Fast Integration Time (ns)", fontsize=16)
+        ax.set_ylabel("Total Integration Time (ns)", fontsize=16)
+        ax.set_zlabel("Figure of Merit", fontsize=16)
         ax.set_zlim(0,5)
+        ax.set_title(self.pltTitle, fontsize=16)
         if savefig:
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltPSD(self, idx, savefig=True, fname='PSDplot.svg', qmin=-100):
+    def pltPSD(self, idx, savefig=True, fname='PSDplot.svg', qmax=100):
         fig = plt.figure()
         ax = fig.gca()
-        ax.hist2d(self.PSDinfo[idx][1], 
-                  np.divide(self.PSDinfo[idx][0],self.PSDinfo[idx][1]),
-                  (200,200), range=((qmin,0), (0.0, 1.0)))
+        ax.hist2d(-self.PSDinfo[idx][1], 
+                  1 - np.divide(self.PSDinfo[idx][0],self.PSDinfo[idx][1]),
+                  (200,200), range=((0,qmax), (0.0, 1.0)))
+        ax.set_title(self.pltTitle)
         if savefig:
             plt.savefig(join(self.path,fname))
+        return fig, ax
+
+    def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg', qmax=100):
+        fig = plt.figure()
+        ax = fig.gca()
+        ax.hist(-self.PSDinfo[idx][1], (200,200), range=(0,qmax))
+        ax.set_title(self.pltTitle)
+        if savefig:
+            plt.savefig(join(self.path, fname))
         return fig, ax
 
     def getFOMvsCharge(self, PSDidx, edgecharge, nbins, qmax, qmin=0):
@@ -455,6 +467,7 @@ class analysis():
         plt.errorbar(self.Energies, self.FOMvsCharge, xerr=self.UEnergies, yerr=self.UFOMvsCharge)
         plt.xlabel('Electron Equivalent Energy (keV)')
         plt.ylabel('PSD FOM')
+        plt.title(self.pltTitle)
         return
 
 if __name__ == '__main__' :
@@ -513,6 +526,7 @@ if __name__ == '__main__' :
     #10% WbLS range = -80:-30
     #For the PROSPECT data, (-450,-300) is about right.
     IntRange = (-40,-30)#HQE PMT#(-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
+    anal.pltTitle = input('Give the title for the plots: \n')
     anal.PSD(AllFastTimes, AllLongTimes, IntRange)
     BestFastTime, BestLongTime, theidx = anal.getBestIntValues()
     print("Run Finished! Optimal value of (Fast, Total) integration is (", \
@@ -520,9 +534,11 @@ if __name__ == '__main__' :
     elapsed = time.time()-t
     print("Time elapsed = ", elapsed, " seconds")
     anal.pltFOMoptim()
-    anal.pltPSD(theidx ,qmin=-100)
+    qmax = max(anal.PSDinfo[theidx][1])
+    anal.pltPSD(theidx, qmax=qmax)
+    anal.pltQtot(theidx, qmax=qmax)
     if anal.isWindows:
         winsound.Beep(4000,100)
 
     EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
-    anal.getFOMvsCharge(theidx, EdgeCharge, 12, 100, qmin=0)
+    anal.getFOMvsCharge(theidx, EdgeCharge, 12, qmax=qmax, qmin=0)
