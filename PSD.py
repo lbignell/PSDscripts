@@ -47,6 +47,7 @@ class analysis():
         self.PSDinfo = None
         self.MaxURelFOM = 0.1
         self.pltTitle = ''
+        self.goodidx = -1
         return
 
     def ReadFile(self,Filename):
@@ -399,15 +400,14 @@ class analysis():
             print("PSD.getBestIntValues ERROR: FOM optimisation hasn't been done yet")
             return None
         FOMmax = 0.
-        imax = -1
         for i,FOM in enumerate(self.FOM):
             if self.FOMuncert[i]/FOM < self.MaxURelFOM and FOM > FOMmax:
                 FOMmax = FOM
-                imax = i
-        if imax == -1:
+                self.goodidx = i
+        if self.goodidx == -1:
             print("PSD.getBestIntValues: No good FOM found.")
             return None
-        return self.IntValues[0][imax], self.IntValues[1][imax], imax
+        return self.IntValues[0][self.goodidx], self.IntValues[1][self.goodidx], self.goodidx
 
     def pltFOMoptim(self, savefig=True, fname="FOMvsIntegrationTimes.svg",
                     cmap=plt.cm.winter):
@@ -532,17 +532,21 @@ if __name__ == '__main__' :
     IntRange = (-40,-30)#HQE PMT#(-450, -300)#(-350,-250)#EJ-309 = (-450,-350), DBLS = (-350, -250)
     anal.pltTitle = input('Give the title for the plots: \n')
     anal.PSD(AllFastTimes, AllLongTimes, IntRange)
-    BestFastTime, BestLongTime, theidx = anal.getBestIntValues()
-    print("Run Finished! Optimal value of (Fast, Total) integration is (", \
-    BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", anal.FOM[theidx])
-    elapsed = time.time()-t
-    print("Time elapsed = ", elapsed, " seconds")
-    anal.pltFOMoptim()
-    qmax = max(-anal.PSDinfo[theidx][1])
-    anal.pltPSD(theidx, qmax=qmax)
-    anal.pltQtot(theidx, qmax=qmax)
-    if anal.isWindows:
-        winsound.Beep(4000,100)
+    ret = anal.getBestIntValues()
+    if ret is not None:
+        BestFastTime, BestLongTime, theidx = ret
+        print("Run Finished! Optimal value of (Fast, Total) integration is (", \
+        BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", anal.FOM[theidx])
+        elapsed = time.time()-t
+        print("Time elapsed = ", elapsed, " seconds")
+        anal.pltFOMoptim()
+        qmax = max(-anal.PSDinfo[theidx][1])
+        anal.pltPSD(theidx, qmax=qmax)
+        anal.pltQtot(theidx, qmax=qmax)
+        if anal.isWindows:
+            winsound.Beep(4000,100)
 
-    EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
-    anal.getFOMvsCharge(theidx, EdgeCharge, 20, qmax=qmax, qmin=0)
+        EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
+        anal.getFOMvsCharge(theidx, EdgeCharge, 20, qmax=qmax, qmin=0)
+    else:
+        print('Couldn\'t find a good PSD, returning...')
