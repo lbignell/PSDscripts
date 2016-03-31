@@ -429,15 +429,19 @@ class analysis():
         ax.hist2d(-self.PSDinfo[idx][1], 
                   1 - np.divide(self.PSDinfo[idx][0],self.PSDinfo[idx][1]),
                   (200,200), range=((0,qmax), (0.0, 1.0)))
+        ax.set_xlabel("Pulse charge (AU)", fontsize=16)
+        ax.set_ylabel("PSD", fontsize=16)
         ax.set_title(self.pltTitle)
         if savefig:
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg', qmax=100):
+    def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg', qmax=100, nbins=1000):
         fig = plt.figure()
         ax = fig.gca()
-        ax.hist(-self.PSDinfo[idx][1], (200,200), range=(0,qmax))
+        ax.hist(-self.PSDinfo[idx][1], bins=nbins, range=(0,qmax))
+        ax.set_xlabel("Pulse charge (AU)", fontsize=16)
+        ax.set_ylabel("Counts", fontsize=16)
         ax.set_title(self.pltTitle)
         if savefig:
             plt.savefig(join(self.path, fname))
@@ -480,7 +484,7 @@ if __name__ == '__main__' :
         mypath = os.getcwd()
         print("No path was provided. Using the current directory: {0}".format(mypath))
         
-    anal = analysis(path=mypath, MaxNumFiles=20000)
+    anal = analysis(path=mypath, MaxNumFiles=30000)
     #EJ-309 data
     #mypath = '/home/lbignell/PSD Analysis/EJ-309/AmBeAndCs137/3522338134/'
     #DBLS data
@@ -534,11 +538,11 @@ if __name__ == '__main__' :
     elapsed = time.time()-t
     print("Time elapsed = ", elapsed, " seconds")
     anal.pltFOMoptim()
-    qmax = max(anal.PSDinfo[theidx][1])
+    qmax = max(-anal.PSDinfo[theidx][1])
     anal.pltPSD(theidx, qmax=qmax)
     anal.pltQtot(theidx, qmax=qmax)
     if anal.isWindows:
         winsound.Beep(4000,100)
 
     EdgeCharge = float(input('Please enter Compton edge location (charge bin): \n'))
-    anal.getFOMvsCharge(theidx, EdgeCharge, 12, qmax=qmax, qmin=0)
+    anal.getFOMvsCharge(theidx, EdgeCharge, 20, qmax=qmax, qmin=0)
