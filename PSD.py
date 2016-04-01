@@ -12,7 +12,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy.optimize import leastsq
-import peakutils
 from scipy.optimize import minimize
 import os
 from mpl_toolkits.mplot3d import Axes3D
@@ -48,6 +47,11 @@ class analysis():
         self.MaxURelFOM = 0.1
         self.pltTitle = ''
         self.goodidx = -1
+        self.comments = None
+        return
+ 
+    def setComments(self, comments):
+        self.comments = comments
         return
 
     def ReadFile(self,Filename):
@@ -453,6 +457,7 @@ class analysis():
         self.UFOMvsCharge = []
         self.pkdatavsCharge = []
         self.coeffvsCharge = []
+        self.EdgeCharge = edgecharge
         binwidth=(qmax-qmin)/(nbins-1)
         ComptonEdge = 477.65 #in keV for Cs137    
         self.EnCal = ComptonEdge/edgecharge #keV/bin
@@ -460,7 +465,7 @@ class analysis():
         self.UEnergies = [self.EnCal*0.5*binwidth for i in range(len(self.Energies))]
         for i in np.linspace(qmin, qmax, nbins):
             dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
-            anal.GetFOM(anal.PSDinfo[50], (50,300), (-(i+binwidth),-i), (0.,1.))
+            self.GetFOM(self.PSDinfo[50], (50,300), (-(i+binwidth),-i), (0.,1.))
             #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
             self.FOMvsCharge.append(dummy1)
             self.pkdatavsCharge.append(dummy5)

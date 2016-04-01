@@ -13,7 +13,8 @@ if os.name == 'nt':
 
 def txtfiles(path, nfiles, fasttimes=np.linspace(10, 120, 12),
              longtimes=np.linspace(200, 1000, 9), intrange=(-40,-30),
-             EdgeBin=None, savefigs=True, titplt=None, verbose=1):
+             EdgeBin=None, savefigs=True, titplt=None, verbose=1,
+             comments=None):
     '''
     Do PSD analysis of nfiles in path. Return an analysis object.
     
@@ -27,7 +28,8 @@ def txtfiles(path, nfiles, fasttimes=np.linspace(10, 120, 12),
     - Optionally save FOM optimisation, PSD, charge spectrum, and FOMvsEnergy plots.
     '''
     anal = PSDscripts.PSD.analysis(path=path, MaxNumFiles=nfiles)
-
+    if comments is not None:
+        anal.setComments(comments)
     t = time.time()
     BestFastTime = 0
     BestLongTime = 0
