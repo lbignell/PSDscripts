@@ -17,7 +17,7 @@ import os
 from mpl_toolkits.mplot3d import Axes3D
 from optparse import OptionParser
 import sys
-from oneton import pipath
+#from oneton import pipath
 import matplotlib as mpl
 if os.name == 'nt':
     import winsound
@@ -483,7 +483,9 @@ if __name__ == '__main__' :
     parser = OptionParser()
     (options,args) = parser.parse_args(args=sys.argv)
     if len(args)>1:
-        mypath = pipath.pipath.fix(args[1])
+        #mypath = pipath.pipath.fix(args[1])
+        mypath = args[1]
+        print('Using path: {0}'.format(args[1]))
     else:
         #assume it's the current dir
         mypath = os.getcwd()
