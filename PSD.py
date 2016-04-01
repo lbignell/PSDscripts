@@ -21,6 +21,8 @@ import sys
 import matplotlib as mpl
 if os.name == 'nt':
     import winsound
+import peakutils
+
 
 class analysis():
     '''
