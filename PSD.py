@@ -59,11 +59,11 @@ class analysis():
     def ReadFile(self,Filename):
         wfm = []
         with open(Filename, 'r') as f:
-            f.next()
-            f.next()
-            f.next()
-            f.next()
-            f.next()
+            f.readline()
+            f.readline()
+            f.readline()
+            f.readline()
+            f.readline()
             for line in f:
                 #print(line.split())            
                 thestr = line.split()
@@ -72,6 +72,16 @@ class analysis():
                 wfm.append(theval)
            
         return wfm
+
+    def Nchars2skip(self, Filename):
+        #get the number of characters to read over in ReadFileFast (the date isn't padded).
+        with open(Filename, 'r') as f:
+            [f.readline() for i in range(5)]
+            theline = f.readline()
+            preamble = theline.split(sep='\t')
+            #print(theline)
+        #Need to skip the tab as well, so add 1
+        return len(preamble[0])+1
 
     def ReadFileBatch(self,Filename):
         f = open(Filename)
@@ -91,18 +101,18 @@ class analysis():
         return wfm
 
     def ReadFileFast(self,Filename):
+        nskip = self.Nchars2skip(Filename)
         wfm = []
         with open(Filename, 'r') as f:
             for i in range(5): f.readline()
             #wfm = [float(line.split()[2]) for line in f]
-            wfm = [float(line[27:]) for line in f]
+            wfm = [float(line[nskip:]) for line in f]
             #print wfm[0:10]
         return wfm
 
-    def GetPSD(self, wfm, startoff, fastint, totint):
+    def GetPSD(self, wfm, startoff, fastint, totint, numavg=200):
         minidx = np.argmin(wfm)
-        #sum BL for 400 pts prior to trig
-        BL = sum(wfm[int(minidx-startoff-400):int(minidx-startoff)])/400
+        BL = sum(wfm[int(minidx-startoff-numavg):int(minidx-startoff)])/numavg
         Qfast = sum(wfm[int(minidx-startoff):int(minidx+fastint)]) - BL*(startoff+fastint)
         Qtot = sum(wfm[int(minidx-startoff):int(minidx+totint)]) - BL*(startoff+totint)
         return (Qfast,Qtot)
@@ -114,10 +124,6 @@ class analysis():
     def ErrorFunc(self, p, x, y):
         return self.DoubleGauss(x,p) - y
 
-    #Old method; 1 integration time per call
-    #def EvalPSD(mypath, FastInt, LongInt, IntRange, MaxNumFiles,
-    #            PSDrange, QtotRange):
-    #New method: all integration times per call
     def EvalPSD(self, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
                 PSDrange, QtotRange):
         #Function to be used to evaluate PSD for optimising LongInt and FastInt
@@ -125,6 +131,7 @@ class analysis():
         PSDinfo = []
         numfiles = 0
         AvgWfm = np.zeros(10000)
+        IntValues = [[x,y] for x in AllFastTimes for y in AllLongTimes]
         for fname in onlyfiles:
             if numfiles>MaxNumFiles: break
             if np.remainder(numfiles,2000)==0:
@@ -132,26 +139,17 @@ class analysis():
                 print("The next file is:", fname)
             numfiles+=1
             Wfm = self.ReadFileFast(join(self.path,fname))
-            #Fill PSDinfo sequentially using several FastInt and LongInt.
-            IntValues = [[x,y] for x in AllFastTimes for y in AllLongTimes]
-            PSDinfo.append([self.GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
-        
-            #if numfiles==1: continue                
-            #thisPSD = PSDinfo[-1][0]/PSDinfo[-1][1]
-            #print "thisPSD = ", thisPSD, " Qtot = ", PSDinfo[-1][1]
+            if len(Wfm)>300:
+                #Fill PSDinfo sequentially using several FastInt and LongInt.
+                PSDinfo.append([self.GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
+            else:
+                print("analysis.EvalPSD WARNING: file {0} didn't read correctly".format(fname))
             #if (PSDrange[0]<thisPSD)&(thisPSD<PSDrange[1])\
             #&(QtotRange[0]<PSDinfo[-1][1])&(PSDinfo[-1][1]<QtotRange[1]):
                 #AvgWfm += Wfm
                 #print "Passed AvgWfmCuts! fname = ", fname
-            
-        print('Original PSDinfo shape = ' + str(np.shape(PSDinfo)))
+
         PSDinfo = np.transpose(PSDinfo, [1,2,0])
-        print('Transposed PSDinfo shape = ' + str(np.shape(PSDinfo)))
-        #IntValues = np.transpose(IntValues)
-        #plt.figure()
-        #Arbirarily plot PSD of 5th tpeak and ttail values
-        #plt.hist2d(PSDinfo[5][1], PSDinfo[5][0]/PSDinfo[5][1], (100,200), range=((-450,-300), (0.0, 1.0)))
-        #Select range from -300:-180 as it appears flat for a guessed PSD value.
         #10% WbLS range = -80:-30
         #For the PROSPECT data, (-450,-300) is about right.
         print("FastInt = ", IntRange[0], "LongInt = ", IntRange[1])
@@ -429,12 +427,13 @@ class analysis():
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltPSD(self, idx, savefig=True, fname='PSDplot.svg', qmax=100):
+    def pltPSD(self, idx, savefig=True, fname='PSDplot.svg',
+               qmax=100, normed=False):
         fig = plt.figure()
         ax = fig.gca()
         ax.hist2d(-self.PSDinfo[idx][1], 
                   1 - np.divide(self.PSDinfo[idx][0],self.PSDinfo[idx][1]),
-                  (200,200), range=((0,qmax), (0.0, 1.0)))
+                  (200,200), range=((0,qmax), (0.0, 1.0)), normed=False)
         ax.set_xlabel("Pulse charge (AU)", fontsize=16)
         ax.set_ylabel("PSD", fontsize=16)
         ax.set_title(self.pltTitle)
@@ -442,10 +441,12 @@ class analysis():
             plt.savefig(join(self.path,fname))
         return fig, ax
 
-    def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg', qmax=100, nbins=1000):
+    def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg',
+                qmax=100, nbins=1000, normed=False):
         fig = plt.figure()
         ax = fig.gca()
-        ax.hist(-self.PSDinfo[idx][1], bins=nbins, range=(0,qmax))
+        ax.hist(-self.PSDinfo[idx][1], bins=nbins, range=(0,qmax),
+                normed=normed, histtype='step')
         ax.set_xlabel("Pulse charge (AU)", fontsize=16)
         ax.set_ylabel("Counts", fontsize=16)
         ax.set_title(self.pltTitle)

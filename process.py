@@ -51,7 +51,7 @@ def txtfiles(path, nfiles, fasttimes=np.linspace(10, 120, 12),
     anal.pltPSD(theidx, qmax=qmax, savefig=savefigs)
     anal.pltQtot(theidx, qmax=qmax, savefig=savefigs)
     if EdgeBin is not None:
-        anal.getFOMvsCharge(theidx, EdgeBin, 20, qmax=qmax, qmin=0)
+        anal.getFOMvsCharge(theidx, EdgeBin, 35, qmax=qmax, qmin=0)
     if os.name == 'nt':
         winsound.Beep(4000,100)
 
