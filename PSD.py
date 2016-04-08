@@ -51,7 +51,14 @@ class analysis():
         self.goodidx = -1
         self.comments = None
         return
- 
+
+    def CopyAnalData(self, obj):
+        members = [attr for attr in dir(obj) if not callable(getattr(obj, attr))
+                    and not attr.startswith("__")]
+        for m in members:
+            setattr(self, m, getattr(obj, m))
+        return
+
     def setComments(self, comments):
         self.comments = comments
         return
@@ -120,6 +127,10 @@ class analysis():
     def DoubleGauss(self, x, p):
         #A1, mu1, sigma1, A2, mu2, sigma2 = p
         return p[0]*np.exp(-(x-p[2])**2/(2.*p[3]**2)) + p[1]*np.exp(-(x-p[4])**2/(2.*p[5]**2))
+
+    def DoubleGauss_cf(self, x, p0, p1, p2, p3, p4, p5):
+        #A1, mu1, sigma1, A2, mu2, sigma2 = p
+        return p0*np.exp(-(x-p2)**2/(2.*p3**2)) + p1*np.exp(-(x-p4)**2/(2.*p5**2))
     
     def ErrorFunc(self, p, x, y):
         return self.DoubleGauss(x,p) - y
@@ -181,7 +192,10 @@ class analysis():
         p0 = [max(pkdata), max(pkdata), bin_centres[min(pkguess)], 0.03, bin_centres[max(pkguess)], 0.03]
         #Use bootstrap method; this neglects covariaces, but the covariances are
         #small between the variables used in FOM calc.    
-        coeff, uncerts = self.fit_function(p0, bin_centres, pkdata, self.DoubleGauss)        
+        coeff, uncerts = self.fit_function(p0, bin_centres, pkdata,
+                                           self.DoubleGauss, 
+                                           sigma=(pkdata**0.5),
+                                           cf_func=self.DoubleGauss_cf)        
         #print("coeff = " + str(coeff))
         #print("uncerts = " + str(uncerts))
         try:    
@@ -239,9 +253,10 @@ class analysis():
         coeff, uncerts, FOMuncert
 
 
-    def fit_function(self, p0, datax, datay, function, **kwargs):
+    def fit_function(self, p0, datax, datay, function, sigma=None,
+                     cf_func=DoubleGauss_cf, **kwargs):
         
-        errfunc = lambda p, x, y: function(x,p) - y
+        errfunc = lambda p, x, y,: function(x,p) - y
         #print "p0 = ", p0
 
         ##################################################
@@ -283,23 +298,29 @@ class analysis():
     
         # When you have an error associated with each dataY point you can use 
         # scipy.curve_fit to give relative weights in the least-squares problem. 
-        datayerrors = kwargs.get('datayerrors', None)
-        #curve_fit_function = kwargs.get('curve_fit_function', function)
-        #if datayerrors is None:
-        #    pfit, pcov = \
-        #        curve_fit(curve_fit_function,datax,datay,p0=p0)
-        #else:
-        #    pfit, pcov = \
-        #         curve_fit(curve_fit_function,datax,datay,p0=p0,\
-        #                            sigma=datayerrors)
-        #error = [] 
-        #for i in range(len(pfit)):
-        #    try:
-        #      error.append( np.absolute(pcov[i][i])**0.5)
-        #    except:
-        #      error.append( 0.00 )
-        #pfit_curvefit = pfit
-        #perr_curvefit = np.array(error)  
+        datayerrors = sigma#kwargs.get('datayerrors', None)
+        curve_fit_function = cf_func#kwargs.get('curve_fit_function', function)
+        if datayerrors is None:
+            try:
+                pfit, pcov = \
+                    curve_fit(curve_fit_function,datax,datay,p0=p0)
+            except RuntimeError:
+                pass#pfit and pcov will just be the leastsq values
+        else:
+            try:
+                pfit, pcov = \
+                     curve_fit(curve_fit_function,datax,datay,p0=p0,
+                               sigma=datayerrors)
+            except RuntimeError:
+                pass#pfit and pcov will just be the leastsq values
+        error = [] 
+        for i in range(len(pfit)):
+            try:
+              error.append( np.absolute(pcov[i][i])**0.5)
+            except:
+              error.append( 0.00 )
+        pfit_curvefit = pfit
+        perr_curvefit = np.array(error)  
 
 
         ####################################################
@@ -339,7 +360,7 @@ class analysis():
                 randomdataY = datay + randomDelta
             else:
                 randomDelta =  np.array( [ \
-                                 np.random.normal(0., derr,1)[0] \
+                                 np.random.normal(0., derr + 1e-10,1)[0] \
                                  for derr in datayerrors ] ) 
                 randomdataY = datay + randomDelta
             randomfit, randomcov = \
@@ -359,16 +380,16 @@ class analysis():
 
 
         # Print results 
-        #print "\nlestsq method :"
-        #print "pfit = ", pfit_leastsq
+        #print("\nlestsq method :")
+        #print("pfit = ", pfit_leastsq)
         #print "perr = ", perr_leastsq
-        #print "\ncurvefit method :"
-        #print "pfit = ", pfit_curvefit
+        #print("\ncurvefit method :")
+        #print("pfit = ", pfit_curvefit)
         #print "perr = ", perr_curvefit
-        #print "\nbootstrap method :"
-        #print "pfit = ", pfit_bootstrap
+        #print("\nbootstrap method :")
+        #print("pfit = ", pfit_bootstrap)
         #print "perr = ", perr_bootstrap
-        return pfit_bootstrap, perr_bootstrap
+        return pfit_curvefit, perr_curvefit#pfit_leastsq, perr_leastsq#_bootstrap
 
     def SetMaxNumFiles(self,num):
         self.MaxNumFiles = num
