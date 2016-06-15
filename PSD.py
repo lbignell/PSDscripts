@@ -22,14 +22,14 @@ import matplotlib as mpl
 if os.name == 'nt':
     import winsound
 import peakutils
-
+import h5py
 
 class analysis():
     '''
     This is a class to handle PSD analysis.
     '''
 
-    def __init__(self, path=None, MaxNumFiles=1000):
+    def __init__(self, path=None, MaxNumFiles=1000, ishdf=False):
         if path is not None:
             self.path = path
         self.MaxNumFiles = MaxNumFiles
@@ -50,6 +50,10 @@ class analysis():
         self.pltTitle = ''
         self.goodidx = -1
         self.comments = None
+        self.ishdf = ishdf
+        if self.ishdf:
+            self.h5file = h5py.File(self.path)
+            self.wfms = self.h5file['Waveforms']
         return
 
     def CopyAnalData(self, obj):
@@ -138,27 +142,34 @@ class analysis():
     def EvalPSD(self, AllFastTimes, AllLongTimes, IntRange, MaxNumFiles,
                 PSDrange, QtotRange):
         #Function to be used to evaluate PSD for optimising LongInt and FastInt
-        onlyfiles = [ f for f in listdir(self.path) if isfile(join(self.path,f))&("Data_" in f) ]
         PSDinfo = []
         numfiles = 0
         AvgWfm = np.zeros(10000)
         IntValues = [[x,y] for x in AllFastTimes for y in AllLongTimes]
-        for fname in onlyfiles:
-            if numfiles>MaxNumFiles: break
-            if np.remainder(numfiles,2000)==0:
-                print(numfiles, " files read!")
-                print("The next file is:", fname)
-            numfiles+=1
-            Wfm = self.ReadFileFast(join(self.path,fname))
-            if len(Wfm)>300:
-                #Fill PSDinfo sequentially using several FastInt and LongInt.
-                PSDinfo.append([self.GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
-            else:
-                print("analysis.EvalPSD WARNING: file {0} didn't read correctly".format(fname))
-            #if (PSDrange[0]<thisPSD)&(thisPSD<PSDrange[1])\
-            #&(QtotRange[0]<PSDinfo[-1][1])&(PSDinfo[-1][1]<QtotRange[1]):
-                #AvgWfm += Wfm
-                #print "Passed AvgWfmCuts! fname = ", fname
+        if not self.h5file:
+            onlyfiles = [ f for f in listdir(self.path) if isfile(join(self.path,f))&("Data_" in f) ]
+            for fname in onlyfiles:
+                if numfiles>MaxNumFiles: break
+                if np.remainder(numfiles,2000)==0:
+                    print(numfiles, " files read!")
+                    print("The next file is:", fname)
+                numfiles+=1
+                Wfm = self.ReadFileFast(join(self.path,fname))
+                if len(Wfm)>300:
+                    #Fill PSDinfo sequentially using several FastInt and LongInt.
+                    PSDinfo.append([self.GetPSD(Wfm,100,Value[0],Value[1]) for Value in IntValues])
+                else:
+                    print("analysis.EvalPSD WARNING: file {0} didn't read correctly".format(fname))
+                    #if (PSDrange[0]<thisPSD)&(thisPSD<PSDrange[1])\
+                    #&(QtotRange[0]<PSDinfo[-1][1])&(PSDinfo[-1][1]<QtotRange[1]):
+                    #AvgWfm += Wfm
+                    #print "Passed AvgWfmCuts! fname = ", fname
+        else:
+            for wfm in self.wfms:
+                #wfm is a numpy array or something so need to index 0 first.
+                if len(wfm[0][0]) is not 0:
+                    PSDinfo.append([self.GetPSD(wfm[0][0], 100, Value[0], Value[1])
+                                    for Value in IntValues])
 
         PSDinfo = np.transpose(PSDinfo, [1,2,0])
         #10% WbLS range = -80:-30
@@ -354,7 +365,7 @@ class analysis():
         s_res = np.std(residuals)
         ps = []
         # 100 random data sets are generated and fitted
-        for i in range(100):
+        for i in range(200):
             if datayerrors is None:
                 randomDelta = np.random.normal(0., s_res, len(datay))
                 randomdataY = datay + randomDelta
@@ -370,12 +381,12 @@ class analysis():
 
         ps = np.array(ps)
         mean_pfit = np.mean(ps,0)
+        median_pfit = np.median(ps,0)
         Nsigma = 1. # 1sigma gets approximately the same as methods above
                     # 1sigma corresponds to 68.3% confidence interval
                     # 2sigma corresponds to 95.44% confidence interval
-        err_pfit = Nsigma * np.std(ps,0) 
-
-        pfit_bootstrap = mean_pfit
+        err_pfit = Nsigma * np.std(self.RejectOutliers(ps,4),0) 
+        pfit_bootstrap = median_pfit
         perr_bootstrap = err_pfit
 
 
@@ -389,7 +400,27 @@ class analysis():
         #print("\nbootstrap method :")
         #print("pfit = ", pfit_bootstrap)
         #print "perr = ", perr_bootstrap
-        return pfit_curvefit, perr_curvefit#pfit_leastsq, perr_leastsq#_bootstrap
+        return pfit_bootstrap, perr_bootstrap#pfit_curvefit, perr_curvefit#pfit_leastsq, perr_leastsq
+
+    def RejectOutliers(self, arr, nsigma=3):#m=2):
+        retarr = []        
+        d = np.abs(arr - np.median(arr,0))
+        mdev = np.median(d,0)
+        s = np.divide(d,mdev)
+        stdev = np.std(arr,0)        
+        for i in range(len(arr)):
+            isgood = True
+            thisfit = []
+            for j in range(len(arr[0])):
+                #if s[i][j] < m:
+                if d[i][j] < nsigma*stdev[j]:
+                    thisfit += [arr[i][j]]
+                else:
+                    isgood = False
+            if isgood:
+                retarr += [thisfit]
+        #print('shape retarr = {0}'.format(np.shape(retarr)))
+        return retarr
 
     def SetMaxNumFiles(self,num):
         self.MaxNumFiles = num
@@ -445,7 +476,10 @@ class analysis():
         ax.set_zlim(0,5)
         ax.set_title(self.pltTitle, fontsize=16)
         if savefig:
-            plt.savefig(join(self.path,fname))
+            if os.path.isdir(self.path):
+                plt.savefig(join(self.path,fname))
+            else:
+                plt.savefig(fname)
         return fig, ax
 
     def pltPSD(self, idx, savefig=True, fname='PSDplot.svg',
@@ -459,9 +493,42 @@ class analysis():
         ax.set_ylabel("PSD", fontsize=16)
         ax.set_title(self.pltTitle)
         if savefig:
-            plt.savefig(join(self.path,fname))
+            if os.path.isdir(self.path):
+                plt.savefig(join(self.path,fname))
+            else:
+                plt.savefig(fname)
         return fig, ax
 
+    def find_edge_bin(self, idx=None, nbins=1000, qmax=100):
+        if self.goodidx < 0 and idx==None:
+            print("ERROR: tried to find edge without finding a PSD idx")
+            return
+        elif self.goodidx<0:
+            theidx = idx
+        else:
+            theidx = self.goodidx
+
+        chargehist = np.histogram(-self.PSDinfo[theidx][1], bins=nbins, 
+                                  range=(0,qmax))
+        bincentres = chargehist[1][0:-1] + (chargehist[1][1] - chargehist[1][0])
+        binvals = chargehist[0]
+        #find the range over which we'll fit a straight line to the edge.
+        #This is semi-arbitrarily set from the index of the maximum bin
+        #to the index of the bin where the histogram next falls below 10% of
+        #the maximum value.
+        #Note that this means the edge finding is only really suitable for
+        #measurements where the Cs-137 dominates the spectrum.
+        maxidx = max(np.where(binvals==binvals.max())[0])
+        minidx = min(np.where(binvals[maxidx:]<binvals.max()*0.1)[0]) + maxidx
+        thefit = np.polyfit(bincentres[maxidx:minidx], 
+                            binvals[maxidx:minidx], 1, cov=True)
+        self.edgefitcoeffs = thefit[0]
+        self.edgefituncert = np.sqrt(np.diag(thefit[1]))
+        xvals = np.linspace(0, qmax, 10001)
+        yvals = xvals*thefit[0][0] + thefit[0][1]
+        self.edgebin = min(np.where(yvals<max(binvals)/2)[0])
+        return self.edgebin
+        
     def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg',
                 qmax=100, nbins=1000, normed=False):
         fig = plt.figure()
@@ -472,10 +539,14 @@ class analysis():
         ax.set_ylabel("Counts", fontsize=16)
         ax.set_title(self.pltTitle)
         if savefig:
-            plt.savefig(join(self.path, fname))
+            if os.path.isdir(self.path):
+                plt.savefig(join(self.path,fname))
+            else:
+                plt.savefig(fname)
         return fig, ax
 
-    def getFOMvsCharge(self, PSDidx, edgecharge, nbins, qmax, qmin=0):
+    def getFOMvsCharge(self, PSDidx, edgecharge, nbins, qmax, qmin=0,
+                       savefig=False, fname='FOMvsCharge.svg'):
         #HQEPMT: qmax=80#EJ-309 = 800, DBLS = 500, P20=800
         self.FOMvsCharge = []
         self.UFOMvsCharge = []
@@ -501,6 +572,12 @@ class analysis():
         plt.xlabel('Electron Equivalent Energy (keV)')
         plt.ylabel('PSD FOM')
         plt.title(self.pltTitle)
+        if savefig:
+            if os.path.isdir(self.path):
+                plt.savefig(join(self.path,fname))
+            else:
+                plt.savefig(fname)
+
         return
 
 if __name__ == '__main__' :
