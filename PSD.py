@@ -500,7 +500,7 @@ class analysis():
                 plt.savefig(fname)
         return fig, ax
 
-    def find_edge_bin(self, idx=None, nbins=1000, qmax=100):
+    def find_edge_bin(self, idx=None, nbins=1000, qmax=100, makeplot=True):
         if self.goodidx > 0:
             theidx = self.goodidx
         elif idx!=None:
@@ -528,6 +528,8 @@ class analysis():
         xvals = np.linspace(0, qmax, 10001)
         yvals = xvals*thefit[0][0] + thefit[0][1]
         self.EdgeCharge = min(np.where(yvals<max(binvals)/2)[0])/qmax
+        fig, ax = self.pltQtot(theidx, savefig=False)
+        ax.plot(xvals, yvals, 'g', linewidth=2)
         return self.EdgeCharge
         
     def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg',
@@ -559,7 +561,7 @@ class analysis():
             else:
                 print("PSD.getFOMvsCharge Error: Energy calibration not set.\
                         Estimating the Compton Edge...")
-                self.find_edge_bin(idx=96)                    
+                self.find_edge_bin(idx=86)                    
 
         binwidth=(qmax-qmin)/(nbins-1)
         ComptonEdge = 477.65 #in keV for Cs137    

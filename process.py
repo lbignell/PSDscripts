@@ -84,8 +84,11 @@ def hdffile(path, fasttimes=np.linspace(10, 120, 12),
     if ret is not None:
         BestFastTime, BestLongTime, theidx = ret
     else:
-        print('Couldn\'t find a good PSD, returning...')
-        return anal
+        vals = [[x,y] for x in fasttimes for y in longtimes]
+        print('Couldn\'t find a good PSD, estimating fast,long int as {0}...'
+                .format(vals[86]))
+        BestFastTime, BestLongTime = vals[86]
+        theidx = 86
     print("Run Finished! Optimal value of (Fast, Total) integration is (", \
     BestFastTime, ",", BestLongTime, "), for a maximum FOM of ", anal.FOM[theidx])
     elapsed = time.time()-t
