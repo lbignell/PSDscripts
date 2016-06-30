@@ -94,8 +94,7 @@ def hdffile(path, fasttimes=np.linspace(10, 120, 12),
     qmax = max(-anal.PSDinfo[theidx][1])
     anal.pltPSD(theidx, qmax=qmax, savefig=savefigs)
     anal.pltQtot(theidx, qmax=qmax, savefig=savefigs)
-    if EdgeBin is not None:
-        anal.getFOMvsCharge(theidx, EdgeBin, 35, qmax=qmax, qmin=0, savefig=True)
+    anal.getFOMvsCharge(theidx, EdgeBin, 35, qmax=qmax, qmin=0, savefig=True)
     if os.name == 'nt':
         winsound.Beep(4000,100)
     return anal

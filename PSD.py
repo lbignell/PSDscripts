@@ -51,6 +51,7 @@ class analysis():
         self.goodidx = -1
         self.comments = None
         self.ishdf = ishdf
+        self.EdgeCharge = None
         if self.ishdf:
             self.h5file = h5py.File(self.path)
             self.wfms = self.h5file['Waveforms']
@@ -500,13 +501,13 @@ class analysis():
         return fig, ax
 
     def find_edge_bin(self, idx=None, nbins=1000, qmax=100):
-        if self.goodidx < 0 and idx==None:
-            print("ERROR: tried to find edge without finding a PSD idx")
-            return
-        elif self.goodidx<0:
+        if self.goodidx > 0:
+            theidx = self.goodidx
+        elif idx!=None:
             theidx = idx
         else:
-            theidx = self.goodidx
+            print("ERROR: tried to find edge without finding a PSD idx")
+            return
 
         chargehist = np.histogram(-self.PSDinfo[theidx][1], bins=nbins, 
                                   range=(0,qmax))
@@ -526,8 +527,8 @@ class analysis():
         self.edgefituncert = np.sqrt(np.diag(thefit[1]))
         xvals = np.linspace(0, qmax, 10001)
         yvals = xvals*thefit[0][0] + thefit[0][1]
-        self.edgebin = min(np.where(yvals<max(binvals)/2)[0])
-        return self.edgebin
+        self.EdgeCharge = min(np.where(yvals<max(binvals)/2)[0])/qmax
+        return self.EdgeCharge
         
     def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg',
                 qmax=100, nbins=1000, normed=False):
@@ -552,10 +553,17 @@ class analysis():
         self.UFOMvsCharge = []
         self.pkdatavsCharge = []
         self.coeffvsCharge = []
-        self.EdgeCharge = edgecharge
+        if self.EdgeCharge is None:
+            if edgecharge is not None:
+                self.EdgeCharge = edgecharge
+            else:
+                print("PSD.getFOMvsCharge Error: Energy calibration not set.\
+                        Estimating the Compton Edge...")
+                self.find_edge_bin(idx=96)                    
+
         binwidth=(qmax-qmin)/(nbins-1)
         ComptonEdge = 477.65 #in keV for Cs137    
-        self.EnCal = ComptonEdge/edgecharge #keV/bin
+        self.EnCal = ComptonEdge/self.EdgeCharge #keV/bin
         self.Energies = np.linspace(qmin, qmax, nbins)*self.EnCal
         self.UEnergies = [self.EnCal*0.5*binwidth for i in range(len(self.Energies))]
         for i in np.linspace(qmin, qmax, nbins):
