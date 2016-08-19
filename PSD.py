@@ -500,7 +500,11 @@ class analysis():
                 plt.savefig(fname)
         return fig, ax
 
-    def find_edge_bin(self, idx=None, nbins=1000, qmax=100, makeplot=True):
+    def find_edge_bin(self, idx=None, nbins=1000, qmax=100, makeplot=True,
+                      ylim=(0,100)):
+        '''
+        Use a linear fit to estimate the Compton Edge, and return the edge bin.
+        '''
         if self.goodidx > 0:
             theidx = self.goodidx
         elif idx!=None:
@@ -519,7 +523,7 @@ class analysis():
         #the maximum value.
         #Note that this means the edge finding is only really suitable for
         #measurements where the Cs-137 dominates the spectrum.
-        maxidx = max(np.where(binvals==binvals.max())[0])
+        maxidx = max(np.where(binvals>(binvals.max()*0.9))[-1])
         minidx = min(np.where(binvals[maxidx:]<binvals.max()*0.1)[0]) + maxidx
         thefit = np.polyfit(bincentres[maxidx:minidx], 
                             binvals[maxidx:minidx], 1, cov=True)
@@ -528,8 +532,9 @@ class analysis():
         xvals = np.linspace(0, qmax, 10001)
         yvals = xvals*thefit[0][0] + thefit[0][1]
         self.EdgeCharge = min(np.where(yvals<max(binvals)/2)[0])/qmax
-        fig, ax = self.pltQtot(theidx, savefig=False)
+        fig, ax = self.pltQtot(theidx, savefig=False, nbins=nbins)
         ax.plot(xvals, yvals, 'g', linewidth=2)
+        plt.ylim(ylim)
         return self.EdgeCharge
         
     def pltQtot(self, idx, savefig=True, fname='Qtotplot.svg',
@@ -556,12 +561,12 @@ class analysis():
         self.pkdatavsCharge = []
         self.coeffvsCharge = []
         if self.EdgeCharge is None:
-            if edgecharge is not None:
-                self.EdgeCharge = edgecharge
-            else:
+            if edgecharge is None:
                 print("PSD.getFOMvsCharge Error: Energy calibration not set.\
                         Estimating the Compton Edge...")
                 self.find_edge_bin(idx=86)                    
+            else:
+                self.EdgeCharge = edgecharge
 
         binwidth=(qmax-qmin)/(nbins-1)
         ComptonEdge = 477.65 #in keV for Cs137    
@@ -570,7 +575,7 @@ class analysis():
         self.UEnergies = [self.EnCal*0.5*binwidth for i in range(len(self.Energies))]
         for i in np.linspace(qmin, qmax, nbins):
             dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9 = \
-            self.GetFOM(self.PSDinfo[50], (50,300), (-(i+binwidth),-i), (0.,1.))
+            self.GetFOM(self.PSDinfo[PSDidx], (50,300), (-(i+binwidth),-i), (0.,1.))
             #EJ-309_surf/Li bin = 20, EJ-309 bin = , DBLS bin = , P-20 bin = 88
             self.FOMvsCharge.append(dummy1)
             self.pkdatavsCharge.append(dummy5)

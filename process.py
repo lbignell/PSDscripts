@@ -10,6 +10,7 @@ import numpy as np
 import os
 if os.name == 'nt':
     import winsound
+import matplotlib.pyplot as plt
 
 def txtfiles(path, nfiles, fasttimes=np.linspace(10, 120, 12),
              longtimes=np.linspace(200, 1000, 9), intrange=(-40,-30),
@@ -57,6 +58,41 @@ def txtfiles(path, nfiles, fasttimes=np.linspace(10, 120, 12),
 
     return anal
     
+def edgerepeatability(basepath, nbins=1000, qmax=100, normed=False):
+    '''
+    Run the Compton Edge analysis for repeated measurements, and plot.
+    Return edge locations.
+    Note the only .h5 files in the basepath should be the data files.
+    '''
+    filelist = os.listdir(basepath)
+    Edges = {}
+    fig = plt.figure()
+    ax = fig.gca()
+    for file in filelist:
+        if '.h5' in file:
+            thisanal = hdfcomptonfile(basepath+file, nbins=nbins)
+            ax.hist(-thisanal.PSDinfo[0][1], bins=nbins, range=(0,qmax),
+                    normed=normed, histtype='step', label=file)
+            Edges[file] = thisanal.EdgeCharge
+    return Edges
+        
+
+def hdfcomptonfile(path, fasttime=100, longtime=700, intrange=(-40,-30), 
+                   makefig=False, nbins=1000):
+    '''
+    This function will process a Compton edge file, and return the analysis
+    object.
+    
+    fasttime/longtime are in ticks, which are usually 0.2 ns apart.
+    '''
+    anal = PSDscripts.PSD.analysis(path=path, ishdf=True)
+    anal.setComments(anal.wfms.attrs['Comments'])
+    anal.pltTitle = anal.wfms.attrs['SampleName']
+    anal.PSD([fasttime], [longtime], intrange)
+    edgeloc = anal.find_edge_bin(idx=0, makeplot=True, nbins=nbins)
+    print('\nFile: {0}\nCompton Edge Bin: {1}\n'.format(path, edgeloc))
+    return anal
+        
 def hdffile(path, fasttimes=np.linspace(10, 120, 12),
              longtimes=np.linspace(200, 1000, 9), intrange=(-40,-30),
              EdgeBin=None, savefigs=True, titplt=None, verbose=1):
